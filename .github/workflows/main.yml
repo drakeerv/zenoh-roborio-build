@@ -41,7 +41,7 @@ jobs:
         run: |
           mkdir -p output
           # Copy the library to the staging area
-          cp zenoh-java/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so output/
+          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so output/
           
           # Zip it using the name pattern Gradle looks for:
           # [artifact]-[version]-[classifier].zip
