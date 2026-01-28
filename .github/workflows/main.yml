@@ -34,20 +34,27 @@ jobs:
         working-directory: zenoh-java/zenoh-jni
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
-      - name: Verify Library Exists
-        run: ls -l zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so
-
       - name: Package for Gradle
         run: |
+          # 1. Find the library (It is likely named libzenoh_jni.so)
+          # We look inside the 'target' folder for the armv7 release
+          SO_FILE=$(find zenoh-java -name "libzenoh*.so" | grep "armv7-unknown-linux-gnueabihf/release" | head -n 1)
+
+          if [ -z "$SO_FILE" ]; then
+            echo "::error::Could not find .so file! Listing all .so files for debugging:"
+            find zenoh-java -name "*.so"
+            exit 1
+          fi
+
+          echo "Found compiled library at: $SO_FILE"
+
           mkdir -p output
-          # Copy the library to the staging area
-          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so output/
           
-          # Zip it using the name pattern Gradle looks for:
-          # [artifact]-[version]-[classifier].zip
-          # Removing the 'v' from version if present for cleaner filenames
+          # 2. Rename it to 'libzenohjava.so' (No underscore) so your Java code loads it easily
+          cp "$SO_FILE" output/libzenohjava.so
+          
+          # 3. Zip it
           CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
-          
           cd output
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
 
