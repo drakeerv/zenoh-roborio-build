@@ -1,0 +1,60 @@
+name: Build Zenoh for RoboRIO
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Zenoh Java Tag to build'
+        required: true
+        default: 'v1.1.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-rio-native:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Zenoh Java Source
+        uses: actions/checkout@v4
+        with:
+          repository: eclipse-zenoh/zenoh-java
+          ref: ${{ inputs.version }}
+          path: zenoh-java
+
+      - name: Setup Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: zenoh-java/zenoh-jni
+
+      - name: Install Cross (Rust Cross-Compiler)
+        run: cargo install cross
+
+      - name: Build for RoboRIO (ARMv7)
+        working-directory: zenoh-java/zenoh-jni
+        run: cross build --release --target armv7-unknown-linux-gnueabihf
+
+      - name: Verify Library Exists
+        run: ls -l zenoh-java/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so
+
+      - name: Package for Gradle
+        run: |
+          mkdir -p output
+          # Copy the library to the staging area
+          cp zenoh-java/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so output/
+          
+          # Zip it using the name pattern Gradle looks for:
+          # [artifact]-[version]-[classifier].zip
+          # Removing the 'v' from version if present for cleaner filenames
+          CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
+          
+          cd output
+          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: zenoh-rio-build-${{ inputs.version }}
+          files: output/*.zip
+          name: "Zenoh RoboRIO Build ${{ inputs.version }}"
+          body: "Custom cross-compiled build of Zenoh Java JNI for FRC RoboRIO (ARMv7)."
