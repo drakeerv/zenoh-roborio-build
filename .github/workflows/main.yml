@@ -36,7 +36,7 @@ jobs:
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-java/zenoh-jni
         env:
-          RUSTFLAGS: "-C strip=symbols" 
+          RUSTFLAGS: "-C strip=symbols -C lto=true -C codegen-units=1"
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
       - name: Verify Library Exists
