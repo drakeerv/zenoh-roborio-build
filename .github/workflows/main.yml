@@ -35,7 +35,7 @@ jobs:
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
       - name: Verify Library Exists
-        run: ls -l zenoh-java/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so
+        run: ls -l zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenohjava.so
 
       - name: Package for Gradle
         run: |
