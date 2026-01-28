@@ -30,7 +30,7 @@ jobs:
       - name: Setup Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: zenoh-java
+          workspaces: zenoh-java/zenoh-jni
           key: armv7-rio-build
 
       - name: Build for RoboRIO (ARMv7)
