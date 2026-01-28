@@ -22,39 +22,34 @@ jobs:
           ref: ${{ inputs.version }}
           path: zenoh-java
 
+      - name: Install Cross (Binary)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
       - name: Setup Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: zenoh-java/zenoh-jni
-
-      - name: Install Cross (Rust Cross-Compiler)
-        run: cargo install cross
+          workspaces: zenoh-java
+          key: armv7-rio-build
 
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-java/zenoh-jni
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
+      - name: Verify Library Exists
+        run: ls -l zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so
+
       - name: Package for Gradle
         run: |
-          # 1. Find the library (It is likely named libzenoh_jni.so)
-          # We look inside the 'target' folder for the armv7 release
-          SO_FILE=$(find zenoh-java -name "libzenoh*.so" | grep "armv7-unknown-linux-gnueabihf/release" | head -n 1)
-
-          if [ -z "$SO_FILE" ]; then
-            echo "::error::Could not find .so file! Listing all .so files for debugging:"
-            find zenoh-java -name "*.so"
-            exit 1
-          fi
-
-          echo "Found compiled library at: $SO_FILE"
-
           mkdir -p output
           
-          # 2. Rename it to 'libzenohjava.so' (No underscore) so your Java code loads it easily
-          cp "$SO_FILE" output/libzenohjava.so
+          # Copy and RENAME the file (libzenoh_jni.so -> libzenohjava.so)
+          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
           
-          # 3. Zip it
+          # Zip it using the pattern Gradle expects
           CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
+          
           cd output
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
 
