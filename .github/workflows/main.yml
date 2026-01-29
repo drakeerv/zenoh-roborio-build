@@ -43,7 +43,11 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
 
       - name: Build Java JAR
         run: gradle :zenoh-java:jar -x test
@@ -60,8 +64,8 @@ jobs:
           cd ..
           
           # 2. Package the Java JAR
-          # In this multi-project build, the jar is in zenoh-java/build/libs/
-          cp zenoh-java/build/libs/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar || cp zenoh-java/build/libs/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
+          # Finding the JAR in the subproject's build directory
+          find zenoh-java/build/libs/ -name "zenoh-java-*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" -exec cp {} output/zenoh-java-${CLEAN_VERSION}.jar \;
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
