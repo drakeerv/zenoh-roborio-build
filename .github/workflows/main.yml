@@ -34,8 +34,6 @@ jobs:
 
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
-        env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
       - name: Set up JDK 17
