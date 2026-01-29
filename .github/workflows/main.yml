@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  build-rio-native:
+  build-rio:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Zenoh Java Source
@@ -39,26 +39,38 @@ jobs:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cross build --release --target armv7-unknown-linux-gnueabihf
 
-      - name: Verify Library Exists
-        run: ls -l zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build Java JAR
+        working-directory: zenoh-java
+        run: mvn clean package -DskipTests -Dmaven.javadoc.skip=true
 
       - name: Package for Gradle
         run: |
           mkdir -p output
-          
-          # Copy and RENAME the file (libzenoh_jni.so -> libzenohjava.so)
-          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
-          
-          # Zip it using the pattern Gradle expects
           CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
           
+          # 1. Package the Native Library
+          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
           cd output
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
+          cd ..
+          
+          # 2. Package the Java JAR
+          # Maven puts it in zenoh-java/target/zenoh-java-<version>.jar
+          cp zenoh-java/target/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: zenoh-rio-build-${{ inputs.version }}
-          files: output/*.zip
+          files: |
+            output/*.zip
+            output/*.jar
           name: "Zenoh RoboRIO Build ${{ inputs.version }}"
-          body: "Custom cross-compiled build of Zenoh Java JNI for FRC RoboRIO (ARMv7)."
+          body: "Matched Java JAR and Native JNI for FRC RoboRIO (ARMv7)."
