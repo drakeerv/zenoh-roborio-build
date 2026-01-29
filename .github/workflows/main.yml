@@ -1,10 +1,10 @@
-name: Build Zenoh for RoboRIO
+name: Build Zenoh for RoboRIO (Parallel)
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Zenoh Java Tag to build'
+        description: 'Zenoh Version'
         required: true
         default: '1.7.2'
 
@@ -12,29 +12,40 @@ permissions:
   contents: write
 
 jobs:
-  build-rio:
+  build-rust:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Zenoh Java Source
+      - name: Checkout Source
         uses: actions/checkout@v4
         with:
           repository: eclipse-zenoh/zenoh-java
-          ref: ${{ inputs.version }}
+          ref: ${{ github.event.inputs.version }}
 
-      - name: Install Cross (Binary)
+      - name: Install Cross
         uses: taiki-e/install-action@v2
         with:
           tool: cross
 
-      - name: Setup Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: zenoh-jni
-          key: armv7-rio-build
-
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
+        env:
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cross build --release --target armv7-unknown-linux-gnueabihf
+
+      - name: Upload Native Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-lib
+          path: zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so
+
+  build-java:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          repository: eclipse-zenoh/zenoh-java
+          ref: ${{ github.event.inputs.version }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -47,40 +58,50 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      - name: Build Java JAR
+      - name: Build Thin JAR
         run: gradle :zenoh-java:jar -x test -PskipNativeOrder=true
 
-      - name: Build Java JAR
-        run: gradle :zenoh-java:jar -x test -PskipNativeOrder=true
+      - name: Upload Java Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-jar
+          path: zenoh-java/build/libs/zenoh-java-jvm.jar
 
-      # --- ADD THIS STEP TO FIND THE PATH ---
-      - name: Locate Build Artifacts
-        run: |
-          echo "=== Searching for JAR file ==="
-          find . -name "*.jar"
-          echo "=============================="
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build-rust, build-java]
+    steps:
+      - name: Download Rust Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-lib
+          path: output
 
-      - name: Package for Gradle
+      - name: Download Java Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: java-jar
+          path: output
+
+      - name: Package and Zip
         run: |
-          mkdir -p output
-          CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
-          
-          # 1. Package the Native Library
-          cp zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
+          CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
-          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
-          cd ..
           
-          # 2. Package the Java JAR
-          # Finding the JAR in the subproject's build directory
-          find zenoh-java/build/libs/ -name "zenoh-java-*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" -exec cp {} output/zenoh-java-${CLEAN_VERSION}.jar \;
+          # 1. Process Native Library
+          mv libzenoh_jni.so libzenohjava.so
+          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
+          rm libzenohjava.so
+          
+          # 2. Process Java JAR
+          mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: zenoh-rio-build-${{ inputs.version }}
+          tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
           files: |
             output/*.zip
             output/*.jar
-          name: "Zenoh RoboRIO Build ${{ inputs.version }}"
-          body: "Matched Java JAR and Native JNI for FRC RoboRIO (ARMv7)."
+          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
+          body: "Matched Parallel Build for FRC RoboRIO (ARMv7)."
