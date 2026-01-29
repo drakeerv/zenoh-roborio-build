@@ -43,10 +43,13 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'maven'
+          cache: 'gradle'
 
       - name: Build Java JAR
-        run: mvn clean package -DskipTests -Dmaven.javadoc.skip=true
+        run: |
+          chmod +x gradlew
+          # Build the jar and skip tests to save time
+          ./gradlew jar -x test
 
       - name: Package for Gradle
         run: |
@@ -54,15 +57,15 @@ jobs:
           CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
           
           # 1. Package the Native Library
-          # Path is now relative to root
           cp zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
           cd output
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
           cd ..
           
           # 2. Package the Java JAR
-          # Using a wildcard to be safe with naming
-          cp target/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
+          # In Gradle, the output usually goes to build/libs/
+          # We search for the zenoh-java jar (ignoring -sources or -javadoc jars)
+          cp build/libs/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar || cp build/libs/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
