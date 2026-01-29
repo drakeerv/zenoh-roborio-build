@@ -59,7 +59,7 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Build Thin JAR
-        run: gradle :zenoh-java:jar -x test -PskipNativeOrder=true
+        run: gradle :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
 
       - name: Upload Java Artifact
         uses: actions/upload-artifact@v4
