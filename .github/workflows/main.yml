@@ -48,7 +48,17 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Build Java JAR
-        run: gradle :zenoh-java:jar -x test
+        run: gradle :zenoh-java:jar -x test -PskipNativeOrder=true
+
+      - name: Build Java JAR
+        run: gradle :zenoh-java:jar -x test -PskipNativeOrder=true
+
+      # --- ADD THIS STEP TO FIND THE PATH ---
+      - name: Locate Build Artifacts
+        run: |
+          echo "=== Searching for JAR file ==="
+          find . -name "*.jar"
+          echo "=============================="
 
       - name: Package for Gradle
         run: |
