@@ -1,4 +1,4 @@
-name: Build Zenoh for RoboRIO (Parallel)
+name: Build Zenoh for RoboRIO
 
 on:
   workflow_dispatch:
