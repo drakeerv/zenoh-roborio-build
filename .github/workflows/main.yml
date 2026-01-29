@@ -101,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
-          gh release delete "$TAG_NAME" --yes --cleanup-tag || true
+          gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
