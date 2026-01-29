@@ -20,7 +20,6 @@ jobs:
         with:
           repository: eclipse-zenoh/zenoh-java
           ref: ${{ inputs.version }}
-          path: zenoh-java
 
       - name: Install Cross (Binary)
         uses: taiki-e/install-action@v2
@@ -30,11 +29,11 @@ jobs:
       - name: Setup Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: zenoh-java/zenoh-jni
+          workspaces: zenoh-jni
           key: armv7-rio-build
 
       - name: Build for RoboRIO (ARMv7)
-        working-directory: zenoh-java/zenoh-jni
+        working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cross build --release --target armv7-unknown-linux-gnueabihf
@@ -47,7 +46,6 @@ jobs:
           cache: 'maven'
 
       - name: Build Java JAR
-        working-directory: zenoh-java
         run: mvn clean package -DskipTests -Dmaven.javadoc.skip=true
 
       - name: Package for Gradle
@@ -56,14 +54,15 @@ jobs:
           CLEAN_VERSION=$(echo "${{ inputs.version }}" | sed 's/^v//')
           
           # 1. Package the Native Library
-          cp zenoh-java/zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
+          # Path is now relative to root
+          cp zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so output/libzenohjava.so
           cd output
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
           cd ..
           
           # 2. Package the Java JAR
-          # Maven puts it in zenoh-java/target/zenoh-java-<version>.jar
-          cp zenoh-java/target/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar
+          # Using a wildcard to be safe with naming
+          cp target/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
