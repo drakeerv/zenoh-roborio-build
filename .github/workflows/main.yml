@@ -46,10 +46,7 @@ jobs:
           cache: 'gradle'
 
       - name: Build Java JAR
-        run: |
-          chmod +x gradlew
-          # Build the jar and skip tests to save time
-          ./gradlew jar -x test
+        run: gradle :zenoh-java:jar -x test
 
       - name: Package for Gradle
         run: |
@@ -63,9 +60,8 @@ jobs:
           cd ..
           
           # 2. Package the Java JAR
-          # In Gradle, the output usually goes to build/libs/
-          # We search for the zenoh-java jar (ignoring -sources or -javadoc jars)
-          cp build/libs/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar || cp build/libs/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
+          # In this multi-project build, the jar is in zenoh-java/build/libs/
+          cp zenoh-java/build/libs/zenoh-java-${CLEAN_VERSION}.jar output/zenoh-java-${CLEAN_VERSION}.jar || cp zenoh-java/build/libs/zenoh-java-*.jar output/zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
