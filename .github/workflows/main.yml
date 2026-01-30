@@ -35,12 +35,14 @@ jobs:
           git clone --depth 1 https://github.com/wpilibsuite/allwpilib.git
           cd allwpilib
           ./gradlew installRoborioToolchain
+          echo "/home/runner/.gradle/toolchains/frc/2025/roborio/bin" >> $GITHUB_PATH
 
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
+          CC_arm_unknown_linux_gnueabi: arm-nilrt-linux-gnueabi-gcc
+          AR_arm_unknown_linux_gnueabi: arm-nilrt-linux-gnueabi-ar
           CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABI_LINKER: arm-nilrt-linux-gnueabi-gcc
-          PATH: /home/runner/.gradle/toolchains/frc/2025/roborio/bin:/home/runner/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cargo build --release --target arm-unknown-linux-gnueabi
 
