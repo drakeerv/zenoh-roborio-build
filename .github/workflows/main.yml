@@ -112,4 +112,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7 Soft-Float)."
+          body: "Build for FRC RoboRIO."
