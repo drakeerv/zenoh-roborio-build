@@ -26,17 +26,17 @@ jobs:
         with:
           tool: cross
 
-      - name: Build for RoboRIO (ARMv7)
+      - name: Build for RoboRIO (ARMv7 Soft Float)
         working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
-        run: cross build --release --target armv7-unknown-linux-gnueabihf
+        run: cross build --release --target armv7-unknown-linux-gnueabi
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/armv7-unknown-linux-gnueabihf/release/libzenoh_jni.so
+          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -52,6 +52,11 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Patch ZenohLoad for RoboRIO
+        run: |
+          FILE=$(find . -name "Zenoh.kt" -o -name "ZenohLoad.kt" | head -n 1)
+          sed -i 's/"aarch64" ->/"aarch64", "arm" ->/g' "$FILE"
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
@@ -87,13 +92,9 @@ jobs:
         run: |
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
-          
-          # 1. Process Native Library
           mv libzenoh_jni.so libzenohjava.so
-          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
+          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabi.zip libzenohjava.so
           rm libzenohjava.so
-          
-          # 2. Process Java JAR
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
 
       - name: Cleanup Old Release
@@ -111,4 +112,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). These builds try to be as small as possible for the RoboRIO."
+          body: "Build for FRC RoboRIO (ARMv7 Soft-Float)."
