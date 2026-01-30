@@ -21,16 +21,24 @@ jobs:
           repository: eclipse-zenoh/zenoh-java
           ref: ${{ github.event.inputs.version }}
 
-      - name: Install Cross
-        uses: taiki-e/install-action@v2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          tool: cross
+          targets: armv7-unknown-linux-gnueabi
 
-      - name: Build for RoboRIO
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Install Zigbuild
+        run: cargo install cargo-zigbuild
+
+      - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
-        run: cross build --release --target armv7-unknown-linux-gnueabi
+        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -112,4 +120,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO."
+          body: "Build for FRC RoboRIO (ARMv7). These builds try to be as small as possible for the RoboRIO."
