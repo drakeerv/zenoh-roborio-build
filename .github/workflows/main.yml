@@ -21,30 +21,34 @@ jobs:
           repository: eclipse-zenoh/zenoh-java
           ref: ${{ github.event.inputs.version }}
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          targets: armv7-unknown-linux-gnueabi
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.13.0
+      - name: Install Rust Target
+        run: rustup target add arm-unknown-linux-gnueabi
 
-      - name: Install Zigbuild
-        run: cargo install cargo-zigbuild
+      - name: Install Toolchain
+        run: |
+          git clone --depth 1 https://github.com/wpilibsuite/allwpilib.git
+          cd allwpilib
+          ./gradlew installRoborioToolchain
 
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
+          CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABI_LINKER: arm-nilrt-linux-gnueabi-gcc
+          PATH: /home/runner/.gradle/toolchains/frc/2026/roborio/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
-        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi
+        run: cargo build --release --target arm-unknown-linux-gnueabi
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
+          path: zenoh-jni/target/arm-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -60,11 +64,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-
-      - name: Patch ZenohLoad for RoboRIO
-        run: |
-          FILE=$(find . -name "Zenoh.kt" -o -name "ZenohLoad.kt" | head -n 1)
-          sed -i 's/"aarch64" ->/"aarch64", "arm" ->/g' "$FILE"
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
@@ -101,7 +100,7 @@ jobs:
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
           mv libzenoh_jni.so libzenohjava.so
-          zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabi.zip libzenohjava.so
+          zip -r zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
           rm libzenohjava.so
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
 
