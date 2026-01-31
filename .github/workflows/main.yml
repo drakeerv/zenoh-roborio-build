@@ -37,13 +37,23 @@ jobs:
         working-directory: allwpilib
         run: ./gradlew installRoborioToolchain
 
+      - name: Prepare Build Environment
+        run: |
+          # Remove toolchain overrides in the Zenoh source to prevent auto-switching
+          find . -name "rust-toolchain" -delete
+          find . -name "rust-toolchain.toml" -delete
+          # Ensure the target is installed for whatever toolchain is now active
+          rustup target add arm-unknown-linux-gnueabi
+
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
+          # Configuration for WPILib 2025 Toolchain
           CC_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-gcc"
           CXX_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-g++"
           AR_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-ar"
           CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABI_LINKER: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-gcc"
+          
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
         run: cargo build --release --target arm-unknown-linux-gnueabi
 
