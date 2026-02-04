@@ -26,6 +26,14 @@ jobs:
         with:
           targets: armv7-unknown-linux-gnueabi
 
+      - name: Prepare Rust Environment
+        # This is the fix: Delete the repo's toolchain files so they don't 
+        # override the one we just installed with the ARM target.
+        run: |
+          find . -name "rust-toolchain" -delete
+          find . -name "rust-toolchain.toml" -delete
+          rustup target add armv7-unknown-linux-gnueabi
+
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -36,24 +44,20 @@ jobs:
 
       - name: Patch Rust for RoboRIO Compatibility
         run: |
-          # The RoboRIO (NI Linux RT) uses an older glibc. 
-          # 1. gettid() is not available as a function in glibc < 2.30, so we wrap the syscall.
-          # 2. We add 'libc' as a dependency to access the syscall constants.
-          
+          # 1. Add libc dependency
+          sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
+          # 2. Add gettid wrapper (RoboRIO glibc < 2.30 fix)
           echo '
           #[no_mangle]
           pub extern "C" fn gettid() -> i32 {
               unsafe { libc::syscall(libc::SYS_gettid) as i32 }
           }
           ' >> zenoh-jni/src/lib.rs
-          
-          sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
-          # cortex-a9 matches the Xilinx Zynq-7000 in the RoboRIO 1 and 2
-          # .2.17 forces compatibility with the RoboRIO's older glibc version
+          # cortex-a9 is the RoboRIO CPU; .2.17 is the RoboRIO glibc version
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9"
         run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
@@ -86,17 +90,12 @@ jobs:
 
       - name: Patch Zenoh Source for RoboRIO
         run: |
-          # Zenoh needs to know how to map the system architecture (arm) 
-          # to the native library folder inside the JAR.
-          
           T_FILE=$(find . -name "Target.kt")
           sed -i '/LINUX_AARCH64,/a \    LINUX_ARM_GNUEABI,' "$T_FILE"
           sed -i '/LINUX_AARCH64 ->/a \            LINUX_ARM_GNUEABI -> "arm-unknown-linux-gnueabi"' "$T_FILE"
           
           L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
-          # Detect the 'arm' architecture string provided by the RoboRIO JVM
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
-          # Rename the expected library name to match the injected file
           sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle
@@ -105,24 +104,20 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Build JAR
-        # skipNativeOrder stops Gradle from trying to compile the C++ code itself
         run: ./gradlew :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
 
       - name: Force Inject Native Library into JAR
         run: |
-          # The Zenoh loader looks for the native library inside the JAR at:
-          # /arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip
-          # (This is a quirk of how zenoh-java handles cross-platform natives)
-          
           mkdir -p payload/arm-unknown-linux-gnueabi
           cp libzenoh_jni.so libzenohjava.so
+          # Zenoh loader expects a zip inside the jar for cross-platform libs
           zip payload/arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip libzenohjava.so
           
           cd payload
           JAR_FILE=$(find ../zenoh-java/build/libs/ -name "*jvm.jar")
           zip -ur "$JAR_FILE" arm-unknown-linux-gnueabi
           
-          echo "Verification of JAR contents:"
+          echo "Checking JAR content for native lib:"
           unzip -l "$JAR_FILE" | grep "arm-unknown-linux-gnueabi.zip"
 
       - name: Upload Java Artifact
@@ -150,14 +145,11 @@ jobs:
           TAG="zenoh-rio-$VERSION"
           
           cd output
-          # Rename for clarity
-          FILE_NAME="zenoh-java-roborio-$CLEAN_VERSION.jar"
-          mv *.jar "$FILE_NAME"
+          mv *.jar "zenoh-java-roborio-$CLEAN_VERSION.jar"
           
-          # Clean up existing tag/release to allow re-runs
           gh release delete "$TAG" --yes || true
           git push origin ":refs/tags/$TAG" || true
           
-          gh release create "$TAG" "$FILE_NAME" \
+          gh release create "$TAG" "zenoh-java-roborio-$CLEAN_VERSION.jar" \
             --title "Zenoh RoboRIO Build $VERSION" \
             --notes "Optimized for NI Linux RT (ARMv7). Glibc 2.17 compatible. Includes gettid syscall fix."
