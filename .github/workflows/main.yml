@@ -80,18 +80,11 @@ jobs:
 
       - name: Patch Zenoh Source for RoboRIO
         run: |
-          # 1. Add LINUX_ARM_GNUEABI to Target.kt
           T_FILE=$(find . -name "Target.kt")
-          sed -i '/LINUX_AARCH64/a \    LINUX_ARM_GNUEABI("arm-unknown-linux-gnueabi"),' "$T_FILE"
-
-          # 2. Patch Zenoh.kt (The JVM implementation of ZenohLoad)
-          # We search specifically in the jvmMain directory
+          sed -i '/LINUX_AARCH64,/a \    LINUX_ARM_GNUEABI,' "$T_FILE"
+          sed -i '/LINUX_AARCH64 ->/a \            LINUX_ARM_GNUEABI -> "arm-unknown-linux-gnueabi"' "$T_FILE"
           L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
-          
-          # Map the "arm" architecture string to our new Target
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
-          
-          # Change the library name to "zenohjava" to match your build system
           sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle 8.10.2
