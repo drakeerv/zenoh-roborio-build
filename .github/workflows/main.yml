@@ -79,7 +79,13 @@ jobs:
 
       - name: Disable Zenoh Auto-Loader
         run: |
-          sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' zenoh-java/src/jvmMain/kotlin/io/zenoh/Zenoh.kt
+          FILE="zenoh-java/src/jvmMain/kotlin/io/zenoh/Zenoh.kt"
+          if [ -f "$FILE" ]; then
+            sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' "$FILE"
+          else
+            echo "Error: $FILE not found"
+            exit 1
+          fi
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
