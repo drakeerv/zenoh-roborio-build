@@ -6,7 +6,7 @@ on:
       version:
         description: 'Zenoh Version'
         required: true
-        default: '1.0.0'
+        default: '1.7.2'
 
 permissions:
   contents: write
@@ -39,7 +39,6 @@ jobs:
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
           rustup target add armv7-unknown-linux-gnueabi
-
       - name: Patch Rust for RoboRIO Compatibility
         run: |
           echo '
@@ -49,7 +48,6 @@ jobs:
           }
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
-
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
@@ -121,14 +119,12 @@ jobs:
           zip -r zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
           rm libzenohjava.so
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
-
       - name: Cleanup Old Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
           gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -137,4 +133,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7)."
+          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and GLIBC compatibility."
