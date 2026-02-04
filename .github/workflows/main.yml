@@ -80,20 +80,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Disable Zenoh Auto-Loader
-        run: |
-          FILE="zenoh-java/src/jvmMain/kotlin/io/zenoh/Zenoh.kt"
-          if [ -f "$FILE" ]; then
-            sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' "$FILE"
-          else
-            # Try the alternative path mentioned for some versions
-            FILE="zenoh-java/zenoh-java/src/jvmMain/kotlin/io/zenoh/Zenoh.kt"
-            if [ -f "$FILE" ]; then
-               sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' "$FILE"
-            else
-               echo "Error: Zenoh.kt not found in expected locations"
-               exit 1
-            fi
-          fi
+        run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
