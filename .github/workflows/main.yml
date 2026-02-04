@@ -102,21 +102,83 @@ jobs:
       - name: Build JAR
         run: gradle :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
 
-      - name: Force Inject Native Library into JAR
+      - name: Build Fat JAR with Dependencies
+        run: |
+          # Create working directory for fat jar assembly
+          mkdir -p fatjar
+          cd fatjar
+          
+          # Extract the built zenoh-java jar
+          unzip -q ../zenoh-java/build/libs/zenoh-java-jvm.jar
+          
+          # Copy all runtime dependencies and extract them
+          cd ..
+          gradle :zenoh-java:dependencies --configuration jvmRuntimeClasspath --console=plain > deps.txt || true
+          
+          # Use gradle to copy all runtime dependencies
+          cat > get_deps.gradle << 'EOF'
+          plugins {
+              id 'java'
+          }
+          
+          repositories {
+              mavenCentral()
+          }
+          
+          configurations {
+              runtimeDeps
+          }
+          
+          dependencies {
+              runtimeDeps 'commons-net:commons-net:3.9.0'
+              runtimeDeps 'com.google.guava:guava:33.3.1-jre'
+              runtimeDeps 'org.jetbrains.kotlin:kotlin-stdlib:1.9.0'
+          }
+          
+          task copyDeps(type: Copy) {
+              from configurations.runtimeDeps
+              into 'runtime-deps'
+          }
+          EOF
+          
+          gradle -b get_deps.gradle copyDeps --console=plain
+          
+          # Extract all dependency jars into fatjar
+          for jar in runtime-deps/*.jar; do
+            echo "Extracting: $jar"
+            unzip -q -o "$jar" -d fatjar 2>/dev/null || true
+          done
+          
+          # Remove signature files that may conflict
+          rm -rf fatjar/META-INF/*.SF fatjar/META-INF/*.DSA fatjar/META-INF/*.RSA 2>/dev/null || true
+
+      - name: Inject Native Library into Fat JAR
         run: |
           mkdir -p payload/arm-unknown-linux-gnueabi
           cp libzenoh_jni.so libzenohjava.so
           zip payload/arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip libzenohjava.so
-          cd payload
-          zip -ur ../zenoh-java/build/libs/zenoh-java-jvm.jar arm-unknown-linux-gnueabi
+          
+          # Add native library to fat jar
+          cp -r payload/arm-unknown-linux-gnueabi fatjar/
+          
+          # Repackage into final fat jar
+          cd fatjar
+          zip -r ../zenoh-java-fat.jar .
           cd ..
-          unzip -l zenoh-java/build/libs/zenoh-java-jvm.jar | grep "arm-unknown-linux-gnueabi.zip"
+          
+          # Verify native library is included
+          echo "Verifying native library in fat jar:"
+          unzip -l zenoh-java-fat.jar | grep "arm-unknown-linux-gnueabi.zip"
+          
+          # Verify dependencies are included
+          echo "Checking for dependencies in fat jar:"
+          unzip -l zenoh-java-fat.jar | grep -E "org/apache/commons/net|com/google/common|kotlin" | head -10
 
       - name: Upload Java Artifact
         uses: actions/upload-artifact@v4
         with:
           name: java-jar
-          path: zenoh-java/build/libs/zenoh-java-jvm.jar
+          path: zenoh-java-fat.jar
 
   publish:
     runs-on: ubuntu-latest
@@ -137,13 +199,14 @@ jobs:
           TAG="zenoh-rio-build-$VERSION"
           
           cd output
-          mv zenoh-java-jvm.jar "zenoh-java-$CLEAN_VERSION.jar"
+          mv zenoh-java-fat.jar "zenoh-java-$CLEAN_VERSION.jar"
           
           # Delete existing release and tag if they exist
-          gh release delete "$TAG" --yes || true
+          gh release delete "$TAG" --yes --repo ${{ github.repository }} || true
           git push origin ":refs/tags/$TAG" || true
           
           # Create fresh release
           gh release create "$TAG" "zenoh-java-$CLEAN_VERSION.jar" \
+            --repo ${{ github.repository }} \
             --title "Zenoh RoboRIO Build $VERSION" \
-            --notes "Build for FRC RoboRIO (ARMv7). Fully self-contained Fat JAR."
+            --notes "Build for FRC RoboRIO (ARMv7). Fully self-contained Fat JAR with all dependencies bundled (commons-net, guava, kotlin-stdlib) and native library for ARMv7."
