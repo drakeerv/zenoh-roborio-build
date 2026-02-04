@@ -43,7 +43,7 @@ jobs:
         working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
-        # The .2.17 suffix forces compatibility with RoboRIO (GLIBC 2.24)
+          CFLAGS_arm_unknown_linux_gnueabi: "-march=armv7-a"
         run: cargo zigbuild --release --target arm-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
