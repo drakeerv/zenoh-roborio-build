@@ -24,7 +24,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: arm-unknown-linux-gnueabi
+          targets: armv7-unknown-linux-gnueabi
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -43,14 +43,13 @@ jobs:
         working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
-          CFLAGS_arm_unknown_linux_gnueabi: "-march=armv7-a"
-        run: cargo zigbuild --release --target arm-unknown-linux-gnueabi.2.17
+        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/arm-unknown-linux-gnueabi/release/libzenoh_jni.so
+          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -70,6 +69,7 @@ jobs:
       - name: Patch ZenohLoad for RoboRIO
         run: |
           FILE=$(find . -name "Zenoh.kt" -o -name "ZenohLoad.kt" | head -n 1)
+          # Patch so that when the RoboRIO reports its arch as "arm", it attempts to load the lib
           sed -i 's/"aarch64" ->/"aarch64", "arm" ->/g' "$FILE"
 
       - name: Setup Gradle 8.10.2
@@ -107,6 +107,7 @@ jobs:
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
           mv libzenoh_jni.so libzenohjava.so
+          # Using the original zip naming convention
           zip -r zenoh-java-jni-${CLEAN_VERSION}-armv7-unknown-linux-gnueabihf.zip libzenohjava.so
           rm libzenohjava.so
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
