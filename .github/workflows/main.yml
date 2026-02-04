@@ -39,18 +39,14 @@ jobs:
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
 
-      - name: Patch Source for RoboRIO Compatibility
+      - name: Patch Rust for RoboRIO
         run: |
-          # 1. Add gettid shim to zenoh-jni/src/lib.rs
-          # This defines gettid() using a direct syscall, bypassing the missing GLIBC wrapper.
           echo '
           #[no_mangle]
           pub extern "C" fn gettid() -> i32 {
               unsafe { libc::syscall(libc::SYS_gettid) as i32 }
           }
           ' >> zenoh-jni/src/lib.rs
-          
-          # 2. Ensure libc is a direct dependency for the shim
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
       - name: Build for RoboRIO (ARMv7)
@@ -82,10 +78,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Patch ZenohLoad for RoboRIO
+      - name: Patch Zenoh Source for RoboRIO
         run: |
-          FILE=$(find . -name "Zenoh.kt" -o -name "ZenohLoad.kt" | head -n 1)
-          sed -i 's/"aarch64" ->/"aarch64", "arm" ->/g' "$FILE"
+          # 1. Patch Target.kt to add ARM support to the Enum
+          T_FILE=$(find . -name "Target.kt")
+          sed -i 's/LINUX_AARCH64("aarch64-unknown-linux-gnu");/LINUX_AARCH64("aarch64-unknown-linux-gnu"),\n    LINUX_ARM_GNUEABI("arm-unknown-linux-gnueabi");/' "$T_FILE"
+
+          # 2. Patch ZenohLoad.kt to recognize "arm" arch string and use "zenohjava" name
+          L_FILE=$(find . -name "ZenohLoad.kt")
+          # Map "arm" arch to our new Target
+          sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
+          # Change expected lib name from "zenoh_jni" to "zenohjava" to match your SO filename
+          sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
@@ -141,4 +145,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). These builds try to be as small as possible for the RoboRIO."
+          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and GLIBC compatibility."
