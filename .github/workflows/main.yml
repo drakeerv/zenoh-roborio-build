@@ -63,7 +63,6 @@ jobs:
           ref: ${{ github.event.inputs.version }}
 
       - name: Set up JDK 17
-        uses: edu.wpi.first.wpilibj.RobotController;
         uses: actions/setup-java@v4
         with:
           java-version: '17'
