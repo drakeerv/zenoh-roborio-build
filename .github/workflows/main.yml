@@ -24,7 +24,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: armv7-unknown-linux-gnueabi
+          targets: arm-unknown-linux-gnueabi
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -38,7 +38,8 @@ jobs:
         run: |
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
-          rustup target add armv7-unknown-linux-gnueabi
+          rustup target add arm-unknown-linux-gnueabi
+
       - name: Patch Rust for RoboRIO Compatibility
         run: |
           echo '
@@ -48,19 +49,16 @@ jobs:
           }
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
-      - name: Build for RoboRIO (ARMv7)
+
+      - name: Build for RoboRIO (ARM Soft-Float ABI)
         working-directory: zenoh-jni
-        env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9"
-          CFLAGS: "-march=armv7-a"
-          CXXFLAGS: "-march=armv7-a"
-        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
+        run: cargo zigbuild --release --target arm-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
+          path: zenoh-jni/target/arm-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -118,12 +116,14 @@ jobs:
           zip -r zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
           rm libzenohjava.so
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
+
       - name: Cleanup Old Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
           gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -132,4 +132,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). patched for architecture detection and manual loading."
+          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and Soft-Float ABI compatibility."
