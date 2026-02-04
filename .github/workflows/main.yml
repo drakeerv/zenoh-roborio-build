@@ -24,7 +24,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: armv7-unknown-linux-gnueabi
+          targets: arm-unknown-linux-gnueabi
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -39,7 +39,7 @@ jobs:
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
 
-      - name: Patch Rust for RoboRIO
+      - name: Patch Rust for RoboRIO Compatibility
         run: |
           echo '
           #[no_mangle]
@@ -80,15 +80,18 @@ jobs:
 
       - name: Patch Zenoh Source for RoboRIO
         run: |
-          # 1. Patch Target.kt to add ARM support to the Enum
+          # 1. Add LINUX_ARM_GNUEABI to Target.kt
           T_FILE=$(find . -name "Target.kt")
-          sed -i 's/LINUX_AARCH64("aarch64-unknown-linux-gnu");/LINUX_AARCH64("aarch64-unknown-linux-gnu"),\n    LINUX_ARM_GNUEABI("arm-unknown-linux-gnueabi");/' "$T_FILE"
+          sed -i '/LINUX_AARCH64/a \    LINUX_ARM_GNUEABI("arm-unknown-linux-gnueabi"),' "$T_FILE"
 
-          # 2. Patch ZenohLoad.kt to recognize "arm" arch string and use "zenohjava" name
-          L_FILE=$(find . -name "ZenohLoad.kt")
-          # Map "arm" arch to our new Target
+          # 2. Patch Zenoh.kt (The JVM implementation of ZenohLoad)
+          # We search specifically in the jvmMain directory
+          L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
+          
+          # Map the "arm" architecture string to our new Target
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
-          # Change expected lib name from "zenoh_jni" to "zenohjava" to match your SO filename
+          
+          # Change the library name to "zenohjava" to match your build system
           sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle 8.10.2
