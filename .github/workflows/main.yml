@@ -78,7 +78,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-lib
-          path: native-lib
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -91,33 +90,27 @@ jobs:
           T_FILE=$(find . -name "Target.kt")
           sed -i '/LINUX_AARCH64,/a \    LINUX_ARM_GNUEABI,' "$T_FILE"
           sed -i '/LINUX_AARCH64 ->/a \            LINUX_ARM_GNUEABI -> "arm-unknown-linux-gnueabi"' "$T_FILE"
-          
           L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
           sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
-      - name: Setup Gradle 8.10.2
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
 
-      - name: Build Thin JAR
+      - name: Build JAR
         run: gradle :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
 
       - name: Force Inject Native Library into JAR
         run: |
-          # Create the structure Zenoh expects: arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip
           mkdir -p payload/arm-unknown-linux-gnueabi
-          
-          # Rename the .so to what the loader code expects (libzenohjava.so)
-          cp native-lib/libzenoh_jni.so libzenohjava.so
-          
-          # Zip the .so into the inner zip file
+          cp libzenoh_jni.so libzenohjava.so
           zip payload/arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip libzenohjava.so
-          
-          # Inject the folder into the JAR using zip -u (update)
           cd payload
           zip -ur ../zenoh-java/build/libs/zenoh-java-jvm.jar arm-unknown-linux-gnueabi
+          cd ..
+          unzip -l zenoh-java/build/libs/zenoh-java-jvm.jar | grep "arm-unknown-linux-gnueabi.zip"
 
       - name: Upload Java Artifact
         uses: actions/upload-artifact@v4
@@ -135,23 +128,22 @@ jobs:
           name: java-jar
           path: output
 
-      - name: Package Release
-        run: |
-          CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
-          cd output
-          mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
-
-      - name: Cleanup Old Release
+      - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
-          gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
-          files: output/*.jar
-          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). Fully self-contained Fat JAR."
+          VERSION="${{ github.event.inputs.version }}"
+          CLEAN_VERSION=$(echo "$VERSION" | sed 's/^v//')
+          TAG="zenoh-rio-build-$VERSION"
+          
+          cd output
+          mv zenoh-java-jvm.jar "zenoh-java-$CLEAN_VERSION.jar"
+          
+          # Delete existing release and tag if they exist
+          gh release delete "$TAG" --yes || true
+          git push origin ":refs/tags/$TAG" || true
+          
+          # Create fresh release
+          gh release create "$TAG" "zenoh-java-$CLEAN_VERSION.jar" \
+            --title "Zenoh RoboRIO Build $VERSION" \
+            --notes "Build for FRC RoboRIO (ARMv7). Fully self-contained Fat JAR."
