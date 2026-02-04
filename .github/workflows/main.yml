@@ -39,6 +39,20 @@ jobs:
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
 
+      - name: Patch Source for RoboRIO Compatibility
+        run: |
+          # 1. Add gettid shim to zenoh-jni/src/lib.rs
+          # This defines gettid() using a direct syscall, bypassing the missing GLIBC wrapper.
+          echo '
+          #[no_mangle]
+          pub extern "C" fn gettid() -> i32 {
+              unsafe { libc::syscall(libc::SYS_gettid) as i32 }
+          }
+          ' >> zenoh-jni/src/lib.rs
+          
+          # 2. Ensure libc is a direct dependency for the shim
+          sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
+
       - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
