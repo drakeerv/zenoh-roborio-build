@@ -145,12 +145,20 @@ jobs:
           
           # Extract all dependency jars into fatjar
           for jar in runtime-deps/*.jar; do
-            echo "Extracting: $jar"
-            unzip -q -o "$jar" -d fatjar 2>/dev/null || true
+            if [ -f "$jar" ]; then
+              echo "Extracting: $jar"
+              if unzip -q -t "$jar" > /dev/null 2>&1; then
+                unzip -q -o "$jar" -d fatjar || echo "Warning: Failed to extract $jar"
+              else
+                echo "Warning: Skipping corrupted JAR: $jar"
+              fi
+            fi
           done
           
           # Remove signature files that may conflict
-          rm -rf fatjar/META-INF/*.SF fatjar/META-INF/*.DSA fatjar/META-INF/*.RSA 2>/dev/null || true
+          echo "Removing signature files..."
+          find fatjar/META-INF -type f \( -name "*.SF" -o -name "*.DSA" -o -name "*.RSA" \) -delete 2>/dev/null || true
+          echo "Signature files removed"
 
       - name: Inject Native Library into Fat JAR
         run: |
