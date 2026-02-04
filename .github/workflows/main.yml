@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Zenoh Version (e.g., 1.1.0 or 1.2.0)'
+        description: 'Zenoh Version'
         required: true
-        default: '1.1.0'
+        default: '1.7.2'
 
 permissions:
   contents: write
 
 jobs:
-  build-native:
+  build-rust:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
@@ -26,44 +26,46 @@ jobs:
         with:
           targets: armv7-unknown-linux-gnueabi
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
 
-      - name: Install Zig and Cargo-Zigbuild
-        run: |
-          pip install cargo-zigbuild
-          sudo snap install zig --classic --beta
+      - name: Install Zigbuild
+        run: cargo install cargo-zigbuild
 
-      - name: Patch Rust for RoboRIO (glibc < 2.30 gettid support)
+      - name: Patch Rust for RoboRIO Compatibility
         run: |
-          # Add libc dependency
-          sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
-          # Inject gettid wrapper if not present (required for older glibc on RIO)
+          # The RoboRIO (NI Linux RT) uses an older glibc. 
+          # 1. gettid() is not available as a function in glibc < 2.30, so we wrap the syscall.
+          # 2. We add 'libc' as a dependency to access the syscall constants.
+          
           echo '
           #[no_mangle]
           pub extern "C" fn gettid() -> i32 {
               unsafe { libc::syscall(libc::SYS_gettid) as i32 }
           }
           ' >> zenoh-jni/src/lib.rs
+          
+          sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build Native Library
+      - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
         env:
+          # cortex-a9 matches the Xilinx Zynq-7000 in the RoboRIO 1 and 2
+          # .2.17 forces compatibility with the RoboRIO's older glibc version
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9"
-        run: |
-          cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
-          # Rename to a standard name for easier loading
-          cp target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so libzenohjava.so
+        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/libzenohjava.so
+          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
-    needs: build-native
+    needs: build-rust
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -71,78 +73,91 @@ jobs:
           repository: eclipse-zenoh/zenoh-java
           ref: ${{ github.event.inputs.version }}
 
+      - name: Download Native Lib
+        uses: actions/download-artifact@v4
+        with:
+          name: native-lib
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Download Native Lib
-        uses: actions/download-artifact@v4
-        with:
-          name: native-lib
-          path: native-bin
-
-      - name: Patch Zenoh Source (Architecture Detection)
+      - name: Patch Zenoh Source for RoboRIO
         run: |
-          # 1. Add LINUX_ARM_GNUEABI to the Target enum
+          # Zenoh needs to know how to map the system architecture (arm) 
+          # to the native library folder inside the JAR.
+          
           T_FILE=$(find . -name "Target.kt")
           sed -i '/LINUX_AARCH64,/a \    LINUX_ARM_GNUEABI,' "$T_FILE"
           sed -i '/LINUX_AARCH64 ->/a \            LINUX_ARM_GNUEABI -> "arm-unknown-linux-gnueabi"' "$T_FILE"
           
-          # 2. Add detection logic in Zenoh.kt/jvmMain
           L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
-          # Identify ARM v7 (RoboRIO)
+          # Detect the 'arm' architecture string provided by the RoboRIO JVM
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
-          # Ensure it looks for our specific lib name
+          # Rename the expected library name to match the injected file
           sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
 
-      - name: Build JAR (Skip Native compilation)
+      - name: Build JAR
+        # skipNativeOrder stops Gradle from trying to compile the C++ code itself
         run: ./gradlew :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
 
-      - name: Package Native Lib into JAR
+      - name: Force Inject Native Library into JAR
         run: |
-          # Zenoh-java loader usually expects resources in a path matching the Target name
-          mkdir -p lib/arm-unknown-linux-gnueabi
-          cp native-bin/libzenohjava.so lib/arm-unknown-linux-gnueabi/libzenohjava.so
+          # The Zenoh loader looks for the native library inside the JAR at:
+          # /arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip
+          # (This is a quirk of how zenoh-java handles cross-platform natives)
           
-          # Inject into the JAR
-          JAR_PATH=$(find zenoh-java/build/libs/ -name "*.jar" | head -n 1)
-          zip -ur "$JAR_PATH" lib/
+          mkdir -p payload/arm-unknown-linux-gnueabi
+          cp libzenoh_jni.so libzenohjava.so
+          zip payload/arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip libzenohjava.so
           
-          echo "Final JAR contents check:"
-          unzip -l "$JAR_PATH" | grep "libzenohjava.so"
+          cd payload
+          JAR_FILE=$(find ../zenoh-java/build/libs/ -name "*jvm.jar")
+          zip -ur "$JAR_FILE" arm-unknown-linux-gnueabi
+          
+          echo "Verification of JAR contents:"
+          unzip -l "$JAR_FILE" | grep "arm-unknown-linux-gnueabi.zip"
 
-      - name: Upload Final JAR
+      - name: Upload Java Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zenoh-roborio-java
-          path: zenoh-java/build/libs/*.jar
+          name: java-jar
+          path: zenoh-java/build/libs/*-jvm.jar
 
-  release:
+  publish:
     runs-on: ubuntu-latest
-    needs: build-java
-    if: success()
+    needs: [build-rust, build-java]
     steps:
-      - name: Download Artifacts
+      - name: Download Java Artifact
         uses: actions/download-artifact@v4
         with:
-          name: zenoh-roborio-java
+          name: java-jar
           path: output
 
-      - name: Publish GitHub Release
+      - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          TAG="rio-$VERSION-${{ github.run_number }}"
+          CLEAN_VERSION=$(echo "$VERSION" | sed 's/^v//')
+          TAG="zenoh-rio-$VERSION"
           
           cd output
-          JAR_NAME=$(ls *.jar)
+          # Rename for clarity
+          FILE_NAME="zenoh-java-roborio-$CLEAN_VERSION.jar"
+          mv *.jar "$FILE_NAME"
           
-          gh release create "$TAG" "$JAR_NAME" \
-            --title "Zenoh $VERSION for RoboRIO" \
-            --notes "Optimized for FRC NI Linux RT (ARMv7). Includes glibc 2.17 compatibility and gettid syscall wrapper."
+          # Clean up existing tag/release to allow re-runs
+          gh release delete "$TAG" --yes || true
+          git push origin ":refs/tags/$TAG" || true
+          
+          gh release create "$TAG" "$FILE_NAME" \
+            --title "Zenoh RoboRIO Build $VERSION" \
+            --notes "Optimized for NI Linux RT (ARMv7). Glibc 2.17 compatible. Includes gettid syscall fix."
