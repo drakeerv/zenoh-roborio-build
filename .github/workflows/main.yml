@@ -91,29 +91,33 @@ jobs:
           T_FILE=$(find . -name "Target.kt")
           sed -i '/LINUX_AARCH64,/a \    LINUX_ARM_GNUEABI,' "$T_FILE"
           sed -i '/LINUX_AARCH64 ->/a \            LINUX_ARM_GNUEABI -> "arm-unknown-linux-gnueabi"' "$T_FILE"
+          
           L_FILE=$(find zenoh-java -name "Zenoh.kt" | grep "jvmMain")
           sed -i '/Target.LINUX_AARCH64/a \                osArch.contains("arm") -> Target.LINUX_ARM_GNUEABI' "$L_FILE"
-
-      - name: Embed Native Lib correctly in JAR Resources
-        run: |
-          # Zenoh looks for: [TARGET_NAME]/[TARGET_NAME].zip
-          # For us, that is: arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip
-          DIR="zenoh-java/src/jvmMain/resources/arm-unknown-linux-gnueabi"
-          mkdir -p "$DIR"
-          
-          # Rename .so to what the loader extracts (libzenohjava.so)
-          cp native-lib/libzenoh_jni.so libzenohjava.so
-          
-          # Create the internal ZIP Zenoh expects
-          zip -j "$DIR/arm-unknown-linux-gnueabi.zip" libzenohjava.so
+          sed -i 's/ZENOH_LIB_NAME = "zenoh_jni"/ZENOH_LIB_NAME = "zenohjava"/' "$L_FILE"
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
 
-      - name: Build Fat JAR
+      - name: Build Thin JAR
         run: gradle :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
+
+      - name: Force Inject Native Library into JAR
+        run: |
+          # Create the structure Zenoh expects: arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip
+          mkdir -p payload/arm-unknown-linux-gnueabi
+          
+          # Rename the .so to what the loader code expects (libzenohjava.so)
+          cp native-lib/libzenoh_jni.so libzenohjava.so
+          
+          # Zip the .so into the inner zip file
+          zip payload/arm-unknown-linux-gnueabi/arm-unknown-linux-gnueabi.zip libzenohjava.so
+          
+          # Inject the folder into the JAR using zip -u (update)
+          cd payload
+          zip -ur ../zenoh-java/build/libs/zenoh-java-jvm.jar arm-unknown-linux-gnueabi
 
       - name: Upload Java Artifact
         uses: actions/upload-artifact@v4
