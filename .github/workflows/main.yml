@@ -53,10 +53,9 @@ jobs:
       - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
-          # Match the RoboRIO Thumb-2 execution mode and Soft-Float ABI
-          RUSTFLAGS: "-C strip=symbols -C opt-level=3 -C target-feature=+v7,+thumb2"
-          CFLAGS: "-march=armv7-a -mthumb -mfloat-abi=soft"
-          CXXFLAGS: "-march=armv7-a -mthumb -mfloat-abi=soft"
+          RUSTFLAGS: "-C strip=symbols -C opt-level=3 -C target-cpu=cortex-a9 -C target-feature=-vfp2,-vfp3,-vfp4,-d32,-neon"
+          CFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=soft -mthumb"
+          CXXFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=soft -mthumb"
         run: |
           cargo zigbuild --release \
             --target armv7-unknown-linux-gnueabi.2.24 \
@@ -141,4 +140,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Stable Zenoh build for RoboRIO 1 & 2. Features: UDP Only. ABI: Pure Soft-Float. Mode: Thumb-2. Encryption: Disabled."
+          body: "RoboRIO build: Pure Soft-Float, UDP Only, Thumb-2 mode, GLIBC 2.24."
