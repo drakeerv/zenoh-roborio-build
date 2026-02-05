@@ -52,6 +52,8 @@ jobs:
 
       - name: Build for RoboRIO (ARM Soft-Float ABI)
         working-directory: zenoh-jni
+        # We use the base arm-unknown target and remove CPU optimizations to ensure 
+        # the calling convention exactly matches the RoboRIO JRE (Soft-Float gnueabi).
         run: cargo zigbuild --release --target arm-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
@@ -76,6 +78,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Disable Zenoh Auto-Loader
+        # Single sed command as requested to bypass the architecture check/extraction
         run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
 
       - name: Setup Gradle 8.10.2
@@ -132,4 +135,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and Soft-Float ABI compatibility."
+          body: "Build for FRC RoboRIO (ARMv7). patched for Soft-Float ABI compatibility."
