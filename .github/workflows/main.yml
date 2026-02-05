@@ -129,15 +129,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
+          TAG_NAME="${{ github.event.inputs.version }}"
           gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
+          tag_name: ${{ github.event.inputs.version }}
           files: |
             output/*.zip
             output/*.jar
-          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "RoboRIO build: Pure Soft-Float, UDP Only, Thumb-2 mode, GLIBC 2.24."
+          name: "${{ github.event.inputs.version }}"
+          body: "Zenoh RoboRIO Build. Features: UDP, Unstable, Internal. ABI: Pure Soft-Float. GLIBC: 2.24."
