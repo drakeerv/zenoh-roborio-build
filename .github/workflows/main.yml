@@ -59,12 +59,12 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO (ARMv7 Softfp)
+      - name: Build for RoboRIO (ARMv7 Pure Soft-Float)
         working-directory: zenoh-jni
         env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9"
-          CFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16"
-          CXXFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16"
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-feature=-vfp2,-vfp3,-vfp4,-neon"
+          CFLAGS: "-march=armv7-a -mfloat-abi=soft"
+          CXXFLAGS: "-march=armv7-a -mfloat-abi=soft"
         run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
