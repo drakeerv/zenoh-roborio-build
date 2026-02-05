@@ -40,26 +40,20 @@ jobs:
           find . -name "rust-toolchain.toml" -delete
           rustup target add armv7-unknown-linux-gnueabi
 
-      - name: Download ARM System Libraries for Linker
+      - name: Download ARM System Libraries (libatomic)
+        # This replaces the broken wget. It finds the current version 
+        # for the armhf (armv7) architecture automatically.
         run: |
-          # 1. Add the armhf (ARMv7 SoftFP) architecture to the package manager
           sudo dpkg --add-architecture armhf
           sudo apt-get update
-          
-          # 2. Download the current version of libatomic for that architecture
           apt-get download libatomic1:armhf
-          
-          # 3. Extract the downloaded .deb file
           mkdir -p ${{ github.workspace }}/target-libs
           dpkg -x libatomic1*.deb ${{ github.workspace }}/target-libs
-          
-          # 4. Find where the libatomic.so file is (path changes between versions)
-          # and create the libatomic.so symlink for the linker
-          REAL_PATH=$(find ${{ github.workspace }}/target-libs -name "libatomic.so.1*")
-          cp "$REAL_PATH" ${{ github.workspace }}/target-libs/libatomic.so
-          
-          echo "Linker library prepared at: ${{ github.workspace }}/target-libs/libatomic.so"
-          
+          # Locate the actual library file and create a generic symlink for the linker
+          REAL_LIB=$(find ${{ github.workspace }}/target-libs -name "libatomic.so.1*")
+          ln -s "$REAL_LIB" ${{ github.workspace }}/target-libs/libatomic.so
+          echo "Libatomic found at: $REAL_LIB"
+
       - name: Patch Rust for RoboRIO Compatibility
         # 1. Patch gettid (glibc 2.24 is too old for Rust std's default gettid call)
         # 2. Add libc dependency
@@ -75,9 +69,9 @@ jobs:
       - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
-          # ABI FIXES FOR SIGSEGV:
-          # target-cpu=cortex-a9: Matches the Zynq-7000 in the RIO.
-          # target-feature=+v7,+vfp3,+neon: Forces the SoftFP ABI expected by the JVM.
+          # CRITICAL ABI FIXES FOR THE RIO:
+          # -C target-feature=+v7,+vfp3,+neon: Ensures floating point and 64-bit alignment 
+          #    matches the JVM's "SoftFP" expectation, preventing the SIGSEGV.
           # -L native: Tells the linker where we put the ARM libatomic.so.
           RUSTFLAGS: >
             -C target-cpu=cortex-a9 
@@ -116,8 +110,6 @@ jobs:
           distribution: 'temurin'
 
       - name: Disable Zenoh Auto-Loader
-        # We modify the Kotlin source to stop it from trying to extract its own
-        # bundled libraries, as we will provide the correct one in the deploy folder.
         run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
 
       - name: Setup Gradle
@@ -154,16 +146,9 @@ jobs:
         run: |
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
-          
-          # Rename to the standard name used by JNI loaders
           mv libzenoh_jni.so libzenohjava.so
-          
-          # Zip the native lib
           zip zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
-          
-          # Rename the Jar
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
-          
           echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
 
       - name: Cleanup Old Release
@@ -183,7 +168,6 @@ jobs:
           name: "Zenoh RoboRIO Build ${{ env.CLEAN_VERSION }}"
           body: |
             Zenoh RoboRIO Build. 
-            - Target: armv7-unknown-linux-gnueabi (RoboRIO)
-            - ABI: SoftFP (VFPv3 + Neon)
+            - ABI: SoftFP (VFPv3 + Neon) 
             - Glibc: 2.24
-            - Features: UDP, Unstable, Internal.
+            - Linked with: libatomic
