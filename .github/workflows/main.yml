@@ -62,17 +62,18 @@ jobs:
       - name: Build for RoboRIO (ARMv7 Softfp Compatibility)
         working-directory: zenoh-jni
         env:
-          # target-feature: 
-          # +vfp3,+d16: Enables the hardware FPU registers the Rio actually has.
-          # -neon: Disables NEON which can cause stability issues on older Rio images.
-          # soft-float: Tells Rust to use the soft calling convention.
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-feature=+vfp3,+d16,-neon"
+          # target-feature explanation:
+          # -neon: RoboRIO does not support NEON reliably across all OS versions.
+          # -d32: This is the LLVM way to say "limit to 16 double registers (d0-d15)".
+          #       Standard Cortex-A9 has 32, but RoboRIO only has 16.
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9 -C target-feature=-neon,-d32"
           
-          # CFLAGS Fixes:
-          # -mfloat-abi=softfp: Solves "Do not know how to soften" by allowing FPU for math.
-          # -mfpu=vfpv3-d16: Limits FPU instructions to what the Rio hardware supports.
-          CFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16 -mthumb"
-          CXXFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16 -mthumb"
+          # CFLAGS explanation:
+          # -mfloat-abi=softfp: Use FPU for math, integer regs for calls (RoboRIO Standard).
+          # -mfpu=vfpv3-d16: Explicitly limit to the 16 hardware registers.
+          # We REMOVED -mthumb to allow 'ring' to use ARM assembly instructions.
+          CFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=vfpv3-d16"
+          CXXFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=vfpv3-d16"
         run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
@@ -153,4 +154,11 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). Compatible with RoboRIO 1 and 2. Patched for Softfp/Soft ABI mismatch and GLIBC 2.24+."
+          body: |
+            Build for FRC RoboRIO 1 & 2 (ARMv7 Cortex-A9).
+            
+            **Technical Details:**
+            - ABI: `gnueabi` (Soft-Float Calling Convention)
+            - Math: `softfp` (Hardware VFPv3-D16 enabled)
+            - GLIBC: Compatible with 2.24+ (Athena OS)
+            - Patches: Fixed `gettid` for older GLIBC and restricted FPU register set to prevent SIGSEGV in JVM.
