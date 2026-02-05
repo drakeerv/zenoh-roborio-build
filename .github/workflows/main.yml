@@ -41,15 +41,25 @@ jobs:
           rustup target add armv7-unknown-linux-gnueabi
 
       - name: Download ARM System Libraries for Linker
-        # The RIO has libatomic, but the GitHub runner needs a copy to link against.
-        # We download the armhf (armv7) version from Debian.
         run: |
-          wget http://ftp.us.debian.org/debian/pool/main/g/gcc-12/libatomic1_12.2.0-14_armhf.deb
+          # 1. Add the armhf (ARMv7 SoftFP) architecture to the package manager
+          sudo dpkg --add-architecture armhf
+          sudo apt-get update
+          
+          # 2. Download the current version of libatomic for that architecture
+          apt-get download libatomic1:armhf
+          
+          # 3. Extract the downloaded .deb file
           mkdir -p ${{ github.workspace }}/target-libs
-          dpkg -x libatomic1_12.2.0-14_armhf.deb ${{ github.workspace }}/target-libs
-          # Create a symlink so '-latomic' finds 'libatomic.so'
-          cp ${{ github.workspace }}/target-libs/usr/lib/arm-linux-gnueabi/libatomic.so.1.2.0 ${{ github.workspace }}/target-libs/libatomic.so
-
+          dpkg -x libatomic1*.deb ${{ github.workspace }}/target-libs
+          
+          # 4. Find where the libatomic.so file is (path changes between versions)
+          # and create the libatomic.so symlink for the linker
+          REAL_PATH=$(find ${{ github.workspace }}/target-libs -name "libatomic.so.1*")
+          cp "$REAL_PATH" ${{ github.workspace }}/target-libs/libatomic.so
+          
+          echo "Linker library prepared at: ${{ github.workspace }}/target-libs/libatomic.so"
+          
       - name: Patch Rust for RoboRIO Compatibility
         # 1. Patch gettid (glibc 2.24 is too old for Rust std's default gettid call)
         # 2. Add libc dependency
