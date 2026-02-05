@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Zenoh Version'
+        description: 'Zenoh Version (e.g., 1.7.2)'
         required: true
         default: '1.7.2'
 
@@ -118,26 +118,38 @@ jobs:
 
       - name: Package and Zip
         run: |
+          # Ensure version is clean (no 'v' prefix)
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
+          
+          # 1. Prepare JNI Zip (matches [artifact]-[revision]-[classifier].[ext])
           mv libzenoh_jni.so libzenohjava.so
-          zip -r zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
-          rm libzenohjava.so
+          zip zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
+          
+          # 2. Prepare Java Jar (matches [artifact]-[revision].[ext])
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
+          
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
 
       - name: Cleanup Old Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="${{ github.event.inputs.version }}"
+          # This must match the tag pattern in build.gradle: zenoh-rio-build-[revision]
+          TAG_NAME="zenoh-rio-build-${{ env.CLEAN_VERSION }}"
           gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.version }}
+          tag_name: "zenoh-rio-build-${{ env.CLEAN_VERSION }}"
           files: |
-            output/*.zip
-            output/*.jar
-          name: "${{ github.event.inputs.version }}"
-          body: "Zenoh RoboRIO Build. Features: UDP, Unstable, Internal. ABI: Pure Soft-Float. GLIBC: 2.24."
+            output/zenoh-java-jni-${{ env.CLEAN_VERSION }}-arm-unknown-linux-gnueabi.zip
+            output/zenoh-java-${{ env.CLEAN_VERSION }}.jar
+          name: "Zenoh RoboRIO Build ${{ env.CLEAN_VERSION }}"
+          body: |
+            Zenoh RoboRIO Build. 
+            - Features: UDP, Unstable, Internal. 
+            - ABI: Pure Soft-Float. 
+            - GLIBC: 2.24.
+            - Version: ${{ env.CLEAN_VERSION }}
