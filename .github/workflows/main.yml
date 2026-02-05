@@ -59,7 +59,7 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO (UDP Only / Pure Soft Float)
+      - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
           RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-feature=-vfp2,-vfp3,-vfp4,-neon"
@@ -69,7 +69,7 @@ jobs:
           cargo zigbuild --release \
             --target armv7-unknown-linux-gnueabi.2.17 \
             --no-default-features \
-            --features "zenoh/transport-udp,zenoh-ext"
+            --features "zenoh/transport_udp,zenoh/unstable,zenoh/internal,zenoh-ext"
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -146,3 +146,7 @@ jobs:
         with:
           tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
           files: |
+            output/*.zip
+            output/*.jar
+          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
+          body: "Zenoh build for RoboRIO 1 & 2. Features: UDP, Unstable, Internal. No Encryption/Ring."
