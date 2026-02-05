@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  build-rust:
+build-rust:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
@@ -41,6 +41,8 @@ jobs:
           rustup target add armv7-unknown-linux-gnueabi
 
       - name: Patch Rust for RoboRIO Compatibility
+        # 1. Patch gettid (glibc 2.24 is too old for Rust std's default gettid call)
+        # 2. Add libc dependency
         run: |
           echo '
           #[no_mangle]
@@ -53,9 +55,9 @@ jobs:
       - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=3 -C target-cpu=cortex-a9 -C target-feature=-vfp2,-vfp3,-vfp4,-d32,-neon"
-          CFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=soft -mthumb"
-          CXXFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=soft -mthumb"
+          RUSTFLAGS: "-C strip=symbols -C opt-level=3 -C target-cpu=cortex-a9 -C link-arg=-latomic"
+          CFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon -mthumb"
+          CXXFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon -mthumb"
         run: |
           cargo zigbuild --release \
             --target armv7-unknown-linux-gnueabi.2.24 \
