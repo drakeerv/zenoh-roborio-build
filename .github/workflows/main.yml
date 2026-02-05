@@ -59,13 +59,17 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO
+      - name: Build for RoboRIO (UDP Only / Pure Soft Float)
         working-directory: zenoh-jni
         env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9 -C target-feature=-d32,-neon"
-          CFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=softfp -mfpu=vfpv3-d16 -marm"
-          CXXFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=softfp -mfpu=vfpv3-d16 -marm"
-        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-feature=-vfp2,-vfp3,-vfp4,-neon"
+          CFLAGS: "-march=armv7-a -mfloat-abi=soft"
+          CXXFLAGS: "-march=armv7-a -mfloat-abi=soft"
+        run: |
+          cargo zigbuild --release \
+            --target armv7-unknown-linux-gnueabi.2.17 \
+            --no-default-features \
+            --features "zenoh/transport-udp,zenoh-ext"
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -142,7 +146,3 @@ jobs:
         with:
           tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
           files: |
-            output/*.zip
-            output/*.jar
-          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Zenoh build for RoboRIO 1 & 2. ABI: softfp. FPU: vfpv3-d16. Mode: ARM."
