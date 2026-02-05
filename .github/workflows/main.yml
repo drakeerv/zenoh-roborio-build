@@ -1,4 +1,18 @@
-build-rust:
+name: Build Zenoh for RoboRIO
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Zenoh Version'
+        required: true
+        default: '1.7.2'
+
+permissions:
+  contents: write
+
+jobs:
+  build-rust:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
@@ -26,47 +40,42 @@ build-rust:
           find . -name "rust-toolchain.toml" -delete
           rustup target add armv7-unknown-linux-gnueabi
 
-      - name: Download ARM System Libraries
-        # We download libatomic1 (armhf) from Debian so the linker can find it.
-        # We use 'dpkg -x' to extract it without installing it on the host system.
+      - name: Download ARM System Libraries for Linker
+        # The RIO has libatomic, but the GitHub runner needs a copy to link against.
+        # We download the armhf (armv7) version from Debian.
         run: |
           wget http://ftp.us.debian.org/debian/pool/main/g/gcc-12/libatomic1_12.2.0-14_armhf.deb
-          mkdir -p target-libs
-          dpkg -x libatomic1_12.2.0-14_armhf.deb target-libs
-          
-          # The linker looks for 'libatomic.so', but the deb contains 'libatomic.so.1'.
-          # We copy/rename it so the linker (-latomic) finds it immediately.
-          cp target-libs/usr/lib/arm-linux-gnueabi/libatomic.so.1.2.0 target-libs/libatomic.so
+          mkdir -p ${{ github.workspace }}/target-libs
+          dpkg -x libatomic1_12.2.0-14_armhf.deb ${{ github.workspace }}/target-libs
+          # Create a symlink so '-latomic' finds 'libatomic.so'
+          cp ${{ github.workspace }}/target-libs/usr/lib/arm-linux-gnueabi/libatomic.so.1.2.0 ${{ github.workspace }}/target-libs/libatomic.so
 
       - name: Patch Rust for RoboRIO Compatibility
+        # 1. Patch gettid (glibc 2.24 is too old for Rust std's default gettid call)
+        # 2. Add libc dependency
         run: |
-          # Patch gettid for older glibc 2.24
           echo '
           #[no_mangle]
           pub extern "C" fn gettid() -> i32 {
               unsafe { libc::syscall(libc::SYS_gettid) as i32 }
           }
           ' >> zenoh-jni/src/lib.rs
-          
-          # Add libc dependency
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
       - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
-          # CRITICAL ABI FIXES:
-          # 1. target-cpu=cortex-a9: Optimize for Zynq 7000.
-          # 2. target-feature=+v7,+vfp3,+neon: Enable Hardware Floats (SoftFP ABI).
-          #    This aligns registers with the JVM's expectation.
-          # 3. -L native=...: Tells the linker where to find the libatomic.so we just downloaded.
-          # 4. -latomic: Links the library.
+          # ABI FIXES FOR SIGSEGV:
+          # target-cpu=cortex-a9: Matches the Zynq-7000 in the RIO.
+          # target-feature=+v7,+vfp3,+neon: Forces the SoftFP ABI expected by the JVM.
+          # -L native: Tells the linker where we put the ARM libatomic.so.
           RUSTFLAGS: >
             -C target-cpu=cortex-a9 
             -C target-feature=+v7,+vfp3,+neon 
             -L native=${{ github.workspace }}/target-libs 
             -C link-arg=-latomic
-            -C strip=symbols
-            
+            -C strip=symbols 
+            -C opt-level=3
           CFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon -mthumb"
           CXXFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon -mthumb"
         run: |
@@ -80,3 +89,91 @@ build-rust:
         with:
           name: native-lib
           path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
+
+  build-java:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          repository: eclipse-zenoh/zenoh-java
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Disable Zenoh Auto-Loader
+        # We modify the Kotlin source to stop it from trying to extract its own
+        # bundled libraries, as we will provide the correct one in the deploy folder.
+        run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Build Thin JAR
+        run: gradle :zenoh-java:jar -x test -x :zenoh-java:buildZenohJni -PskipNativeOrder=true
+
+      - name: Upload Java Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-jar
+          path: zenoh-java/build/libs/zenoh-java-jvm.jar
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build-rust, build-java]
+    steps:
+      - name: Download Rust Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-lib
+          path: output
+
+      - name: Download Java Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: java-jar
+          path: output
+
+      - name: Package and Zip
+        run: |
+          CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
+          cd output
+          
+          # Rename to the standard name used by JNI loaders
+          mv libzenoh_jni.so libzenohjava.so
+          
+          # Zip the native lib
+          zip zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
+          
+          # Rename the Jar
+          mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
+          
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
+
+      - name: Cleanup Old Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="zenoh-rio-build-${{ env.CLEAN_VERSION }}"
+          gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "zenoh-rio-build-${{ env.CLEAN_VERSION }}"
+          files: |
+            output/zenoh-java-jni-${{ env.CLEAN_VERSION }}-arm-unknown-linux-gnueabi.zip
+            output/zenoh-java-${{ env.CLEAN_VERSION }}.jar
+          name: "Zenoh RoboRIO Build ${{ env.CLEAN_VERSION }}"
+          body: |
+            Zenoh RoboRIO Build. 
+            - Target: armv7-unknown-linux-gnueabi (RoboRIO)
+            - ABI: SoftFP (VFPv3 + Neon)
+            - Glibc: 2.24
+            - Features: UDP, Unstable, Internal.
