@@ -59,21 +59,12 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO (ARMv7 Softfp Compatibility)
+      - name: Build for RoboRIO
         working-directory: zenoh-jni
         env:
-          # target-feature explanation:
-          # -neon: RoboRIO does not support NEON reliably across all OS versions.
-          # -d32: This is the LLVM way to say "limit to 16 double registers (d0-d15)".
-          #       Standard Cortex-A9 has 32, but RoboRIO only has 16.
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9 -C target-feature=-neon,-d32"
-          
-          # CFLAGS explanation:
-          # -mfloat-abi=softfp: Use FPU for math, integer regs for calls (RoboRIO Standard).
-          # -mfpu=vfpv3-d16: Explicitly limit to the 16 hardware registers.
-          # We REMOVED -mthumb to allow 'ring' to use ARM assembly instructions.
-          CFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=vfpv3-d16"
-          CXXFLAGS: "-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=vfpv3-d16"
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9 -C target-feature=-d32,-neon"
+          CFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=softfp -mfpu=vfpv3-d16 -marm"
+          CXXFLAGS: "-march=armv7-a -mcpu=cortex_a9 -mfloat-abi=softfp -mfpu=vfpv3-d16 -marm"
         run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
@@ -154,11 +145,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: |
-            Build for FRC RoboRIO 1 & 2 (ARMv7 Cortex-A9).
-            
-            **Technical Details:**
-            - ABI: `gnueabi` (Soft-Float Calling Convention)
-            - Math: `softfp` (Hardware VFPv3-D16 enabled)
-            - GLIBC: Compatible with 2.24+ (Athena OS)
-            - Patches: Fixed `gettid` for older GLIBC and restricted FPU register set to prevent SIGSEGV in JVM.
+          body: "Zenoh build for RoboRIO 1 & 2. ABI: softfp. FPU: vfpv3-d16. Mode: ARM."
