@@ -59,12 +59,20 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO (ARMv7 Soft-Float)
+      - name: Build for RoboRIO (ARMv7 Softfp Compatibility)
         working-directory: zenoh-jni
         env:
-          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-cpu=cortex-a9"
-          CFLAGS: "-march=armv7-a -mfloat-abi=soft"
-          CXXFLAGS: "-march=armv7-a -mfloat-abi=soft"
+          # target-feature: 
+          # +vfp3,+d16: Enables the hardware FPU registers the Rio actually has.
+          # -neon: Disables NEON which can cause stability issues on older Rio images.
+          # soft-float: Tells Rust to use the soft calling convention.
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C target-feature=+vfp3,+d16,-neon"
+          
+          # CFLAGS Fixes:
+          # -mfloat-abi=softfp: Solves "Do not know how to soften" by allowing FPU for math.
+          # -mfpu=vfpv3-d16: Limits FPU instructions to what the Rio hardware supports.
+          CFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16 -mthumb"
+          CXXFLAGS: "-march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16 -mthumb"
         run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
@@ -145,4 +153,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and GLIBC compatibility."
+          body: "Build for FRC RoboRIO (ARMv7). Compatible with RoboRIO 1 and 2. Patched for Softfp/Soft ABI mismatch and GLIBC 2.24+."
