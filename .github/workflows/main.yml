@@ -24,21 +24,30 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: arm-unknown-linux-gnueabi
+          targets: armv7-unknown-linux-gnueabi
+
+      - name: Cache Cargo Binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-zigbuild
+
+      - name: Install Zigbuild
+        run: |
+          if ! command -v cargo-zigbuild &> /dev/null; then
+            cargo install cargo-zigbuild
+          fi
 
       - name: Install Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.13.0
 
-      - name: Install Zigbuild
-        run: cargo install cargo-zigbuild
-
       - name: Prepare Rust Environment
         run: |
           find . -name "rust-toolchain" -delete
           find . -name "rust-toolchain.toml" -delete
-          rustup target add arm-unknown-linux-gnueabi
+          rustup target add armv7-unknown-linux-gnueabi
 
       - name: Patch Rust for RoboRIO Compatibility
         run: |
@@ -50,17 +59,20 @@ jobs:
           ' >> zenoh-jni/src/lib.rs
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO (ARM Soft-Float ABI)
+      - name: Build for RoboRIO (ARMv7 Soft-Float)
         working-directory: zenoh-jni
-        # We use the base arm-unknown target and remove CPU optimizations to ensure 
-        # the calling convention exactly matches the RoboRIO JRE (Soft-Float gnueabi).
-        run: cargo zigbuild --release --target arm-unknown-linux-gnueabi.2.17
+        env:
+          # Using armv7-a without cortex-a9 specific tuning to ensure ABI compatibility
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z"
+          CFLAGS: "-march=armv7-a -mfloat-abi=soft"
+          CXXFLAGS: "-march=armv7-a -mfloat-abi=soft"
+        run: cargo zigbuild --release --target armv7-unknown-linux-gnueabi.2.17
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/arm-unknown-linux-gnueabi/release/libzenoh_jni.so
+          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -78,7 +90,6 @@ jobs:
           distribution: 'temurin'
 
       - name: Disable Zenoh Auto-Loader
-        # Single sed command as requested to bypass the architecture check/extraction
         run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
 
       - name: Setup Gradle 8.10.2
@@ -135,4 +146,4 @@ jobs:
             output/*.zip
             output/*.jar
           name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
-          body: "Build for FRC RoboRIO (ARMv7). patched for Soft-Float ABI compatibility."
+          body: "Build for FRC RoboRIO (ARMv7). Fully patched for architecture detection and GLIBC compatibility."
