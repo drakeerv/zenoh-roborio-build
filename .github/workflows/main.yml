@@ -24,68 +24,47 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Use armv7, not generic arm. This allows better optimization for the RIO.
-          targets: armv7-unknown-linux-gnueabi
+          targets: arm-unknown-linux-gnueabi
 
-      - name: Install Zigbuild
-        run: cargo install cargo-zigbuild
-
-      - name: Install Zig
-        uses: goto-bus-stop/setup-zig@v2
+      - name: Checkout WPILib for Toolchain
+        uses: actions/checkout@v4
         with:
-          version: 0.13.0
+          repository: wpilibsuite/allwpilib
+          path: allwpilib
+          depth: 1
 
-      # We must install the GCC arm libraries to get a copy of libatomic.so 
-      # that the linker can find during the build process.
-      - name: Install ARMv7 System Libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabi
+      - name: Install RoboRIO Toolchain
+        working-directory: allwpilib
+        run: ./gradlew installRoborioToolchain
 
-      - name: Prepare Rust Environment
+      - name: Patch Rust for RoboRIO Compatibility (gettid shim)
         run: |
-          find . -name "rust-toolchain" -delete
-          find . -name "rust-toolchain.toml" -delete
-          rustup target add armv7-unknown-linux-gnueabi
-
-      - name: Patch Rust for RoboRIO Compatibility
-        # Keep your patch. Glibc 2.24 is old and needs this help.
-        run: |
+          # Add the gettid syscall shim to the Zenoh JNI source
           echo '
           #[no_mangle]
           pub extern "C" fn gettid() -> i32 {
               unsafe { libc::syscall(libc::SYS_gettid) as i32 }
           }
           ' >> zenoh-jni/src/lib.rs
+          # Ensure libc is a dependency for the syscall
           sed -i '/\[dependencies\]/a libc = "0.2"' zenoh-jni/Cargo.toml
 
-      - name: Build for RoboRIO
+      - name: Build for RoboRIO (ARMv7)
         working-directory: zenoh-jni
-        run: |
-          # Locate the system libatomic to prevent the linker from complaining
-          ATOMIC_PATH=$(find /usr -name "libatomic.so" | grep "arm-linux-gnueabi" | head -n 1 | xargs dirname)
-          echo "Linking against libatomic in: $ATOMIC_PATH"
+        env:
+          CC_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-gcc"
+          CXX_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-g++"
+          AR_arm_unknown_linux_gnueabi: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-ar"
+          CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABI_LINKER: "/home/runner/.gradle/toolchains/frc/2025/roborio/bin/arm-frc2025-linux-gnueabi-gcc"
           
-          # BUILD COMMAND EXPLANATION:
-          # --target armv7-unknown-linux-gnueabi.2.24 : Soft-Float ABI, but pins GLIBC 2.24
-          # -C target-cpu=cortex-a9                   : Enables VFPv3/NEON (Hardware Math)
-          # -mfloat-abi=softfp                        : Tells C compiler to use Soft ABI + Hard Math
-          # -latomic                                  : Fixes the 0x80000004 crash
-          
-          export RUSTFLAGS="-C strip=symbols -C opt-level=3 -C target-cpu=cortex-a9 -C link-arg=-L$ATOMIC_PATH -C link-arg=-latomic"
-          export CFLAGS="-march=armv7-a -mcpu=cortex-a9 -mfloat-abi=softfp -mfpu=neon -mthumb"
-          export CXXFLAGS="$CFLAGS"
-          
-          cargo zigbuild --release \
-            --target armv7-unknown-linux-gnueabi.2.24 \
-            --no-default-features \
-            --features "zenoh/transport_udp,zenoh/unstable,zenoh/internal,zenoh-ext"
+          RUSTFLAGS: "-C strip=symbols -C opt-level=z -C codegen-units=1 -C panic=abort"
+        run: cargo build --release --target arm-unknown-linux-gnueabi
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-lib
-          path: zenoh-jni/target/armv7-unknown-linux-gnueabi/release/libzenoh_jni.so
+          path: zenoh-jni/target/arm-unknown-linux-gnueabi/release/libzenoh_jni.so
 
   build-java:
     runs-on: ubuntu-latest
@@ -102,9 +81,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Standard fix to prevent loading attempting to load from standard paths
-      - name: Disable Zenoh Auto-Loader
-        run: sed -i 's/if (tryLoadingLocalLibrary().isFailure)/if (false)/' $(find . -name "Zenoh.kt" | grep "jvmMain")
+      - name: Patch ZenohLoad for RoboRIO
+        run: |
+          FILE=$(find . -name "Zenoh.kt" -o -name "ZenohLoad.kt" | head -n 1)
+          sed -i 's/"aarch64" ->/"aarch64", "arm" ->/g' "$FILE"
 
       - name: Setup Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
@@ -140,33 +120,24 @@ jobs:
         run: |
           CLEAN_VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           cd output
-          
-          # Rename and Zip Native Lib
           mv libzenoh_jni.so libzenohjava.so
-          zip zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
-          
-          # Rename Jar
+          zip -r zenoh-java-jni-${CLEAN_VERSION}-arm-unknown-linux-gnueabi.zip libzenohjava.so
+          rm libzenohjava.so
           mv zenoh-java-jvm.jar zenoh-java-${CLEAN_VERSION}.jar
-          
-          echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
 
       - name: Cleanup Old Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_NAME="zenoh-rio-build-${{ env.CLEAN_VERSION }}"
+          TAG_NAME="zenoh-rio-build-${{ github.event.inputs.version }}"
           gh release delete "$TAG_NAME" --yes --cleanup-tag -R ${{ github.repository }} || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: "zenoh-rio-build-${{ env.CLEAN_VERSION }}"
+          tag_name: zenoh-rio-build-${{ github.event.inputs.version }}
           files: |
-            output/zenoh-java-jni-${{ env.CLEAN_VERSION }}-arm-unknown-linux-gnueabi.zip
-            output/zenoh-java-${{ env.CLEAN_VERSION }}.jar
-          name: "Zenoh RoboRIO Build ${{ env.CLEAN_VERSION }}"
-          body: |
-            Zenoh RoboRIO Build.
-            - **Target:** armv7-unknown-linux-gnueabi
-            - **GLIBC:** 2.24 (Soft-Float ABI)
-            - **CPU:** Cortex-A9 (NEON/VFPv3 Enabled)
+            output/*.zip
+            output/*.jar
+          name: "Zenoh RoboRIO Build ${{ github.event.inputs.version }}"
+          body: "Build for FRC RoboRIO (ARMv7). These builds try to be as small as possible for the RoboRIO."
